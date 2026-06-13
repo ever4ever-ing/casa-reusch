@@ -1,0 +1,14 @@
+# Fotos del catálogo de modelos
+
+Coloca aquí las fotos de book de cada modelo. Los nombres deben coincidir con `src/data/site.ts`:
+
+- zara.jpg
+- europa.jpg
+- issi.jpg
+- valentina.jpg
+- mellek.jpg
+- priscila.jpg
+- michelle.jpg
+- sofia.jpg
+
+Formato recomendado: JPG o WebP, cuadrado o vertical, mínimo 600×600 px.
