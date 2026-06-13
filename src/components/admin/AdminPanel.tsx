@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
+import { PhotoUpload } from "@/components/admin/PhotoUpload";
 import type { ModelCategory } from "@/lib/db/types";
 import type { AdminModel } from "@/lib/db/admin";
 
@@ -42,6 +43,10 @@ const emptyForm = (): FormState => ({
   serviceIds: [],
 });
 
+function cacheBust(url: string): string {
+  return `${url.split("?")[0]}?t=${Date.now()}`;
+}
+
 export function AdminPanel() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
@@ -53,7 +58,8 @@ export function AdminPanel() {
   const [isNew, setIsNew] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
+  const [imageVersion, setImageVersion] = useState(0);
 
   const loadData = useCallback(async () => {
     const res = await fetch("/api/admin/models");
@@ -102,11 +108,13 @@ export function AdminPanel() {
     setModels([]);
     setEditingId(null);
     setIsNew(false);
+    setPendingPhoto(null);
   }
 
   function startEdit(model: AdminModel) {
     setEditingId(model.id);
     setIsNew(false);
+    setPendingPhoto(null);
     setForm({
       id: model.id,
       name: model.name,
@@ -123,6 +131,7 @@ export function AdminPanel() {
   function startNew() {
     setEditingId(null);
     setIsNew(true);
+    setPendingPhoto(null);
     setForm({ ...emptyForm(), sortOrder: models.length + 1 });
     setMessage("");
   }
@@ -130,7 +139,27 @@ export function AdminPanel() {
   function cancelEdit() {
     setEditingId(null);
     setIsNew(false);
+    setPendingPhoto(null);
     setForm(emptyForm());
+  }
+
+  async function uploadPhoto(modelId: string, file: File): Promise<boolean> {
+    const formData = new FormData();
+    formData.append("modelId", modelId);
+    formData.append("file", file);
+
+    const res = await fetch("/api/admin/upload", { method: "POST", body: formData });
+    const data = (await res.json()) as { models?: AdminModel[]; error?: string };
+
+    if (!res.ok) {
+      setMessage(data.error ?? "Error al subir foto");
+      return false;
+    }
+
+    if (data.models) setModels(data.models);
+    setImageVersion((v) => v + 1);
+    setMessage("Foto actualizada correctamente");
+    return true;
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -147,18 +176,40 @@ export function AdminPanel() {
       body: JSON.stringify(form),
     });
 
-    setLoading(false);
     const data = (await res.json()) as { models?: AdminModel[]; error?: string };
 
     if (!res.ok) {
+      setLoading(false);
       setMessage(data.error ?? "Error al guardar");
       return;
     }
 
     if (data.models) setModels(data.models);
-    setMessage(isNew ? "Modelo creada" : "Cambios guardados");
+
+    const savedId =
+      form.id.trim() ||
+      form.name
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+
     setIsNew(false);
-    setEditingId(form.id);
+    setEditingId(savedId);
+
+    if (pendingPhoto) {
+      const uploaded = await uploadPhoto(savedId, pendingPhoto);
+      setPendingPhoto(null);
+      if (!uploaded) {
+        setLoading(false);
+        return;
+      }
+    } else {
+      setMessage("Datos guardados");
+    }
+
+    setLoading(false);
   }
 
   async function handleDelete(id: string) {
@@ -174,25 +225,6 @@ export function AdminPanel() {
     if (data.models) setModels(data.models);
     cancelEdit();
     setMessage("Modelo eliminada");
-  }
-
-  async function handleUpload(modelId: string, file: File) {
-    setUploadingId(modelId);
-    setMessage("");
-    const formData = new FormData();
-    formData.append("modelId", modelId);
-    formData.append("file", file);
-
-    const res = await fetch("/api/admin/upload", { method: "POST", body: formData });
-    setUploadingId(null);
-    const data = (await res.json()) as { models?: AdminModel[]; error?: string };
-
-    if (!res.ok) {
-      setMessage(data.error ?? "Error al subir foto");
-      return;
-    }
-    if (data.models) setModels(data.models);
-    setMessage("Foto subida correctamente");
   }
 
   function toggleService(serviceId: string) {
@@ -243,6 +275,9 @@ export function AdminPanel() {
   }
 
   const editingModel = editingId ? models.find((m) => m.id === editingId) : null;
+  const editingImageUrl = editingModel?.imageUrl
+    ? cacheBust(`${editingModel.imageUrl}&v=${imageVersion}`)
+    : undefined;
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200">
@@ -267,13 +302,10 @@ export function AdminPanel() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[1fr_380px]">
-        {/* Lista de modelos */}
+      <div className="mx-auto grid max-w-6xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[1fr_400px]">
         <section>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-serif text-lg text-stone-100">
-              Modelos ({models.length})
-            </h2>
+            <h2 className="font-serif text-lg text-stone-100">Modelos ({models.length})</h2>
             <button
               type="button"
               onClick={startNew}
@@ -291,9 +323,11 @@ export function AdminPanel() {
 
           <div className="space-y-2">
             {models.map((model) => (
-              <div
+              <button
                 key={model.id}
-                className={`flex items-center gap-4 rounded-xl border p-3 transition ${
+                type="button"
+                onClick={() => startEdit(model)}
+                className={`flex w-full items-center gap-4 rounded-xl border p-3 text-left transition ${
                   editingId === model.id
                     ? "border-amber-400/50 bg-stone-900"
                     : "border-stone-800 bg-stone-900/50 hover:border-stone-700"
@@ -304,11 +338,12 @@ export function AdminPanel() {
                 >
                   {model.imageUrl ? (
                     <Image
-                      src={model.imageUrl}
+                      src={`${model.imageUrl}?t=${imageVersion}`}
                       alt={model.name}
                       fill
                       className="object-cover"
                       sizes="56px"
+                      unoptimized
                     />
                   ) : (
                     <span className="flex h-full items-center justify-center font-serif text-lg text-white/30">
@@ -320,37 +355,16 @@ export function AdminPanel() {
                   <p className="truncate font-medium text-stone-100">{model.name}</p>
                   <p className="text-xs text-stone-500">
                     {model.category} · {model.active ? "Activa" : "Inactiva"} · #{model.sortOrder}
+                    {model.imageUrl ? " · Con foto" : " · Sin foto"}
                   </p>
                 </div>
-                <label className="cursor-pointer text-xs text-amber-300 hover:text-amber-200">
-                  {uploadingId === model.id ? "Subiendo..." : "Foto"}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    disabled={uploadingId === model.id}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleUpload(model.id, file);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => startEdit(model)}
-                  className="text-xs text-stone-400 hover:text-stone-200"
-                >
-                  Editar
-                </button>
-              </div>
+              </button>
             ))}
           </div>
         </section>
 
-        {/* Formulario */}
         <section className="lg:sticky lg:top-6 lg:self-start">
-          {(isNew || editingId) ? (
+          {isNew || editingId ? (
             <form
               onSubmit={handleSave}
               className="rounded-2xl border border-stone-800 bg-stone-900 p-5"
@@ -358,6 +372,20 @@ export function AdminPanel() {
               <h2 className="font-serif text-lg text-amber-100">
                 {isNew ? "Nueva modelo" : `Editar: ${editingModel?.name}`}
               </h2>
+
+              <PhotoUpload
+                modelId={editingId}
+                modelName={form.name}
+                accent={form.accent}
+                imageUrl={editingImageUrl}
+                disabled={loading}
+                isNew={isNew}
+                pendingFile={pendingPhoto}
+                onPendingFile={setPendingPhoto}
+                onUpload={async (file) => {
+                  await uploadPhoto(editingId!, file);
+                }}
+              />
 
               {isNew && (
                 <div className="mt-4">
@@ -475,7 +503,7 @@ export function AdminPanel() {
                   disabled={loading}
                   className="flex-1 rounded-lg bg-amber-400 py-2.5 text-xs font-semibold uppercase tracking-wider text-stone-950 hover:bg-amber-300 disabled:opacity-50"
                 >
-                  Guardar
+                  {loading ? "Guardando..." : "Guardar"}
                 </button>
                 <button
                   type="button"
