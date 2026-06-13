@@ -4,9 +4,8 @@
   "name": "casa-reusch",
   "compatibility_date": "2025-04-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "build": {
-    "command": "npx opennextjs-cloudflare build"
-  },
+  // Cloudflare Workers Builds: usar "Build command" = npm run build:cf
+  // y "Deploy command" = npm run deploy  (NO usar solo "npx wrangler deploy")
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
