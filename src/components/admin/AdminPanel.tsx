@@ -59,7 +59,20 @@ export function AdminPanel() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
+  const [listPreviewUrl, setListPreviewUrl] = useState<string | null>(null);
+  const [listPreviewFile, setListPreviewFile] = useState<File | null>(null);
   const [imageVersion, setImageVersion] = useState(0);
+
+  useEffect(() => {
+    const file = listPreviewFile ?? pendingPhoto;
+    if (!file) {
+      setListPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setListPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingPhoto, listPreviewFile]);
 
   const loadData = useCallback(async () => {
     const res = await fetch("/api/admin/models");
@@ -109,12 +122,14 @@ export function AdminPanel() {
     setEditingId(null);
     setIsNew(false);
     setPendingPhoto(null);
+    setListPreviewFile(null);
   }
 
   function startEdit(model: AdminModel) {
     setEditingId(model.id);
     setIsNew(false);
     setPendingPhoto(null);
+    setListPreviewFile(null);
     setForm({
       id: model.id,
       name: model.name,
@@ -132,6 +147,7 @@ export function AdminPanel() {
     setEditingId(null);
     setIsNew(true);
     setPendingPhoto(null);
+    setListPreviewFile(null);
     setForm({ ...emptyForm(), sortOrder: models.length + 1 });
     setMessage("");
   }
@@ -140,6 +156,7 @@ export function AdminPanel() {
     setEditingId(null);
     setIsNew(false);
     setPendingPhoto(null);
+    setListPreviewFile(null);
     setForm(emptyForm());
   }
 
@@ -201,6 +218,7 @@ export function AdminPanel() {
     if (pendingPhoto) {
       const uploaded = await uploadPhoto(savedId, pendingPhoto);
       setPendingPhoto(null);
+    setListPreviewFile(null);
       if (!uploaded) {
         setLoading(false);
         return;
@@ -322,7 +340,16 @@ export function AdminPanel() {
           )}
 
           <div className="space-y-2">
-            {models.map((model) => (
+            {models.map((model) => {
+              const thumbSrc =
+                model.id === editingId && listPreviewUrl
+                  ? listPreviewUrl
+                  : model.imageUrl
+                    ? `${model.imageUrl}?t=${imageVersion}`
+                    : null;
+              const thumbIsBlob = thumbSrc?.startsWith("blob:") ?? false;
+
+              return (
               <button
                 key={model.id}
                 type="button"
@@ -336,15 +363,24 @@ export function AdminPanel() {
                 <div
                   className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-gradient-to-br ${model.accent}`}
                 >
-                  {model.imageUrl ? (
-                    <Image
-                      src={`${model.imageUrl}?t=${imageVersion}`}
-                      alt={model.name}
-                      fill
-                      className="object-cover"
-                      sizes="56px"
-                      unoptimized
-                    />
+                  {thumbSrc ? (
+                    thumbIsBlob ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={thumbSrc}
+                        alt={model.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <Image
+                        src={thumbSrc}
+                        alt={model.name}
+                        fill
+                        className="object-cover"
+                        sizes="56px"
+                        unoptimized
+                      />
+                    )
                   ) : (
                     <span className="flex h-full items-center justify-center font-serif text-lg text-white/30">
                       {model.name.charAt(0)}
@@ -359,7 +395,8 @@ export function AdminPanel() {
                   </p>
                 </div>
               </button>
-            ))}
+            );
+            })}
           </div>
         </section>
 
@@ -382,6 +419,7 @@ export function AdminPanel() {
                 isNew={isNew}
                 pendingFile={pendingPhoto}
                 onPendingFile={setPendingPhoto}
+                onPreviewChange={setListPreviewFile}
                 onUpload={async (file) => {
                   await uploadPhoto(editingId!, file);
                 }}
