@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type PhotoUploadProps = {
@@ -8,6 +7,7 @@ type PhotoUploadProps = {
   modelName: string;
   accent: string;
   imageUrl?: string;
+  imageVersion?: number;
   disabled?: boolean;
   onUpload: (file: File) => Promise<void>;
   pendingFile: File | null;
@@ -22,11 +22,17 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function withCacheBust(url: string, version: number): string {
+  const base = url.split("?")[0];
+  return `${base}?v=${version}`;
+}
+
 export function PhotoUpload({
   modelId,
   modelName,
   accent,
   imageUrl,
+  imageVersion = 0,
   disabled,
   onUpload,
   pendingFile,
@@ -35,78 +41,62 @@ export function PhotoUpload({
   isNew,
 }: PhotoUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const previewUrlRef = useRef<string | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewFile, setPreviewFile] = useState<File | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadDone, setUploadDone] = useState(false);
 
-  const revokePreview = useCallback(() => {
-    if (previewUrlRef.current?.startsWith("blob:")) {
-      URL.revokeObjectURL(previewUrlRef.current);
+  const revokeBlob = useCallback(() => {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
     }
-    previewUrlRef.current = null;
   }, []);
 
-  const showPreview = useCallback(
-    (file: File) => {
-      revokePreview();
+  const setLocalPreview = useCallback(
+    (file: File | null) => {
+      revokeBlob();
+      if (!file) {
+        setBlobUrl(null);
+        setSelectedFile(null);
+        onPreviewChange?.(null);
+        return;
+      }
       const url = URL.createObjectURL(file);
-      previewUrlRef.current = url;
-      setPreviewUrl(url);
-      setPreviewFile(file);
+      blobUrlRef.current = url;
+      setBlobUrl(url);
+      setSelectedFile(file);
       setUploadDone(false);
       onPreviewChange?.(file);
     },
-    [revokePreview, onPreviewChange],
+    [revokeBlob, onPreviewChange],
   );
 
-  const clearPreview = useCallback(() => {
-    revokePreview();
-    setPreviewUrl(null);
-    setPreviewFile(null);
-    setUploadDone(false);
-    onPreviewChange?.(null);
-  }, [revokePreview, onPreviewChange]);
-
   useEffect(() => {
-    if (pendingFile) {
-      showPreview(pendingFile);
-    } else if (!uploading && !previewFile) {
-      clearPreview();
+    if (pendingFile) setLocalPreview(pendingFile);
+  }, [pendingFile, setLocalPreview]);
+
+  useEffect(() => () => revokeBlob(), [revokeBlob]);
+
+  // Solo quitar el blob cuando ya tenemos URL del servidor
+  useEffect(() => {
+    if (uploadDone && imageUrl && blobUrl) {
+      revokeBlob();
+      setBlobUrl(null);
+      setSelectedFile(null);
     }
-  }, [pendingFile, showPreview, clearPreview, uploading, previewFile]);
+  }, [uploadDone, imageUrl, blobUrl, revokeBlob]);
 
-  useEffect(() => {
-    return () => revokePreview();
-  }, [revokePreview]);
-
-  // Cuando el servidor devuelve la URL, reemplazar el blob por la foto guardada
-  useEffect(() => {
-    if (!pendingFile && !uploading && imageUrl && previewFile) {
-      clearPreview();
-      setUploadDone(true);
-    }
-  }, [imageUrl, pendingFile, uploading, previewFile, clearPreview]);
-
-  // Tras subir en modelo existente, limpiar blob si ya hay URL remota
-  useEffect(() => {
-    if (uploadDone && imageUrl && previewUrl?.startsWith("blob:")) {
-      revokePreview();
-      setPreviewUrl(null);
-      setPreviewFile(null);
-    }
-  }, [uploadDone, imageUrl, previewUrl, revokePreview]);
-
-  const displayUrl = previewUrl ?? imageUrl ?? null;
-  const isBlobPreview = displayUrl?.startsWith("blob:") ?? false;
+  const serverUrl = imageUrl ? withCacheBust(imageUrl, imageVersion) : null;
+  const displayUrl = blobUrl ?? serverUrl;
 
   const pickFile = useCallback(
     async (file: File | undefined) => {
       if (!file || !file.type.startsWith("image/")) return;
 
-      showPreview(file);
+      setLocalPreview(file);
 
       if (isNew || !modelId) {
         onPendingFile(file);
@@ -121,7 +111,7 @@ export function PhotoUpload({
         setUploading(false);
       }
     },
-    [isNew, modelId, onPendingFile, onUpload, showPreview],
+    [isNew, modelId, onPendingFile, onUpload, setLocalPreview],
   );
 
   function onDrop(e: React.DragEvent) {
@@ -133,18 +123,19 @@ export function PhotoUpload({
 
   function handleClear() {
     onPendingFile(null);
-    clearPreview();
+    setUploadDone(false);
+    setLocalPreview(null);
   }
 
   const statusLabel = uploading
     ? "Subiendo foto..."
-    : uploadDone
+    : uploadDone && serverUrl
       ? "Foto guardada"
-      : previewFile
+      : blobUrl
         ? isNew
           ? "Vista previa · se sube al guardar"
           : "Vista previa"
-        : imageUrl
+        : serverUrl
           ? "Foto actual"
           : "Sin foto";
 
@@ -164,7 +155,7 @@ export function PhotoUpload({
             ? "border-amber-400 bg-amber-400/5"
             : uploading
               ? "border-amber-400/60 bg-amber-400/5"
-              : previewFile
+              : displayUrl
                 ? "border-emerald-500/40 bg-emerald-500/5"
                 : "border-stone-700 bg-stone-950"
         }`}
@@ -173,23 +164,12 @@ export function PhotoUpload({
           className={`relative mx-auto aspect-square w-full max-w-[260px] bg-gradient-to-br ${accent}`}
         >
           {displayUrl ? (
-            isBlobPreview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={displayUrl}
-                alt={modelName || "Vista previa"}
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-            ) : (
-              <Image
-                src={displayUrl}
-                alt={modelName || "Foto"}
-                fill
-                className="object-cover"
-                sizes="260px"
-                unoptimized
-              />
-            )
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={displayUrl}
+              alt={modelName || "Foto"}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-stone-500">
               <span className="font-serif text-5xl text-white/20">
@@ -203,21 +183,18 @@ export function PhotoUpload({
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-[2px]">
               <div className="h-10 w-10 animate-spin rounded-full border-2 border-amber-400/30 border-t-amber-400" />
               <span className="text-sm font-medium text-amber-100">Subiendo...</span>
-              {previewFile && (
+              {selectedFile && (
                 <span className="max-w-[90%] truncate text-xs text-stone-400">
-                  {previewFile.name}
+                  {selectedFile.name}
                 </span>
               )}
-              <div className="mx-6 h-1 w-full max-w-[180px] overflow-hidden rounded-full bg-stone-800">
-                <div className="h-full w-1/2 animate-pulse rounded-full bg-amber-400" />
-              </div>
             </div>
           )}
 
-          {previewFile && !uploading && (
-            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
-              <p className="truncate text-xs font-medium text-white">{previewFile.name}</p>
-              <p className="text-[10px] text-stone-400">{formatFileSize(previewFile.size)}</p>
+          {selectedFile && blobUrl && !uploading && (
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
+              <p className="truncate text-xs font-medium text-white">{selectedFile.name}</p>
+              <p className="text-[10px] text-stone-400">{formatFileSize(selectedFile.size)}</p>
             </div>
           )}
         </div>
@@ -227,9 +204,9 @@ export function PhotoUpload({
             className={`mb-2 text-center text-xs ${
               uploading
                 ? "text-amber-300"
-                : uploadDone
+                : uploadDone && serverUrl
                   ? "text-emerald-400"
-                  : previewFile
+                  : displayUrl
                     ? "text-emerald-400/80"
                     : "text-stone-500"
             }`}
@@ -258,7 +235,7 @@ export function PhotoUpload({
             >
               {displayUrl ? "Cambiar foto" : "Elegir foto"}
             </button>
-            {previewFile && (
+            {(blobUrl || selectedFile) && (
               <button
                 type="button"
                 disabled={disabled || uploading}
@@ -271,7 +248,7 @@ export function PhotoUpload({
           </div>
 
           <p className="mt-2 text-center text-[10px] text-stone-600">
-            JPG, PNG o WebP · máx. 5 MB · la vista previa aparece al instante
+            JPG, PNG o WebP · máx. 5 MB
           </p>
         </div>
       </div>

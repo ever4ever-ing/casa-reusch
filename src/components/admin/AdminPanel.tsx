@@ -43,8 +43,9 @@ const emptyForm = (): FormState => ({
   serviceIds: [],
 });
 
-function cacheBust(url: string): string {
-  return `${url.split("?")[0]}?t=${Date.now()}`;
+function withVersion(url: string, version: number): string {
+  const base = url.split("?")[0];
+  return `${base}?v=${version}`;
 }
 
 export function AdminPanel() {
@@ -175,6 +176,7 @@ export function AdminPanel() {
 
     if (data.models) setModels(data.models);
     setImageVersion((v) => v + 1);
+    setListPreviewFile(null);
     setMessage("Foto actualizada correctamente");
     return true;
   }
@@ -293,9 +295,6 @@ export function AdminPanel() {
   }
 
   const editingModel = editingId ? models.find((m) => m.id === editingId) : null;
-  const editingImageUrl = editingModel?.imageUrl
-    ? cacheBust(`${editingModel.imageUrl}&v=${imageVersion}`)
-    : undefined;
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200">
@@ -345,7 +344,7 @@ export function AdminPanel() {
                 model.id === editingId && listPreviewUrl
                   ? listPreviewUrl
                   : model.imageUrl
-                    ? `${model.imageUrl}?t=${imageVersion}`
+                    ? withVersion(model.imageUrl, imageVersion)
                     : null;
               const thumbIsBlob = thumbSrc?.startsWith("blob:") ?? false;
 
@@ -411,10 +410,12 @@ export function AdminPanel() {
               </h2>
 
               <PhotoUpload
+                key={editingId ?? "new"}
                 modelId={editingId}
                 modelName={form.name}
                 accent={form.accent}
-                imageUrl={editingImageUrl}
+                imageUrl={editingModel?.imageUrl}
+                imageVersion={imageVersion}
                 disabled={loading}
                 isNew={isNew}
                 pendingFile={pendingPhoto}
