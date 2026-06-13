@@ -12,11 +12,11 @@ export function Hero() {
           {site.tagline}
         </p>
         <h1 className="font-serif text-4xl leading-tight text-stone-50 sm:text-5xl lg:text-6xl">
-          Modelos VIP para tu próxima producción
+          Acompañantes VIP
         </h1>
         <p className="mx-auto mt-6 max-w-lg text-lg leading-relaxed text-stone-400">
           {site.reference}. Ofrecemos responsabilidad y calidad en servicios de
-          modelaje profesional, dentro y fuera de Temuco.
+          acompañantes VIP, dentro y fuera de Temuco.
         </p>
         <div className="mt-10 flex flex-col justify-center gap-4 sm:flex-row">
           <a
