@@ -1,5 +1,6 @@
-import type { ModelCategory, Service } from "./types";
+import type { ModelCategory, ModelPhoto, Service } from "./types";
 import { getMediaUrl } from "./models";
+import { getPhotosForModel } from "./photos";
 
 export type AdminModel = {
   id: string;
@@ -12,6 +13,7 @@ export type AdminModel = {
   active: boolean;
   sortOrder: number;
   serviceIds: string[];
+  photos: ModelPhoto[];
 };
 
 type AdminModelRow = {
@@ -47,6 +49,7 @@ function mapAdminRows(rows: AdminModelRow[]): AdminModel[] {
         active: row.active === 1,
         sortOrder: row.sort_order,
         serviceIds: [],
+        photos: [],
       };
       map.set(row.id, model);
     }
@@ -73,7 +76,13 @@ export async function getAdminModels(env: CloudflareEnv): Promise<AdminModel[]> 
     )
     .all<AdminModelRow>();
 
-  return mapAdminRows(results ?? []);
+  const models = mapAdminRows(results ?? []);
+  return Promise.all(
+    models.map(async (model) => ({
+      ...model,
+      photos: await getPhotosForModel(db, model.id),
+    })),
+  );
 }
 
 export type ModelInput = {
@@ -192,20 +201,4 @@ export function slugifyId(name: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
-}
-
-export function imageKeyForModel(modelId: string, filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() || "jpg";
-  const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "jpg";
-  return `models/${modelId}.${safeExt === "jpeg" ? "jpg" : safeExt}`;
-}
-
-export function contentTypeForExt(ext: string): string {
-  const map: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    webp: "image/webp",
-  };
-  return map[ext.toLowerCase()] ?? "image/jpeg";
 }

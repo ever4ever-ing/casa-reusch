@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { assertAdmin, isAdminAuthError } from "@/lib/auth/guard";
-import {
-  contentTypeForExt,
-  getAdminModels,
-  imageKeyForModel,
-  updateModelImageKey,
-} from "@/lib/db/admin";
+import { getAdminModels } from "@/lib/db/admin";
+import { addPhotoToModel, contentTypeForExt, galleryImageKey } from "@/lib/db/photos";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +24,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Máximo 5 MB por imagen" }, { status: 400 });
     }
 
-    const imageKey = imageKeyForModel(modelId, file.name);
+    const imageKey = galleryImageKey(modelId, file.name);
     const ext = imageKey.split(".").pop() ?? "jpg";
     const arrayBuffer = await file.arrayBuffer();
 
@@ -36,14 +32,12 @@ export async function POST(request: Request) {
       httpMetadata: { contentType: contentTypeForExt(ext) },
     });
 
-    const updated = await updateModelImageKey(env, modelId, imageKey);
-    if (!updated) {
-      return NextResponse.json({ error: "Modelo no encontrada" }, { status: 404 });
-    }
-
+    const photoId = await addPhotoToModel(env, modelId, imageKey);
     const models = await getAdminModels(env);
+
     return NextResponse.json({
       ok: true,
+      photoId,
       imageKey,
       imageUrl: `/api/media/${imageKey}`,
       models,

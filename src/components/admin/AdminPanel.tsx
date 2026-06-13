@@ -181,6 +181,21 @@ export function AdminPanel() {
     return true;
   }
 
+  async function handleDeletePhoto(photoId: string) {
+    if (!confirm("¿Eliminar esta foto de la galería?")) return;
+    setLoading(true);
+    const res = await fetch(`/api/admin/photos/${photoId}`, { method: "DELETE" });
+    setLoading(false);
+    const data = (await res.json()) as { models?: AdminModel[]; error?: string };
+    if (!res.ok) {
+      setMessage(data.error ?? "Error al eliminar foto");
+      return;
+    }
+    if (data.models) setModels(data.models);
+    setImageVersion((v) => v + 1);
+    setMessage("Foto eliminada");
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -390,7 +405,9 @@ export function AdminPanel() {
                   <p className="truncate font-medium text-stone-100">{model.name}</p>
                   <p className="text-xs text-stone-500">
                     {model.category} · {model.active ? "Activa" : "Inactiva"} · #{model.sortOrder}
-                    {model.imageUrl ? " · Con foto" : " · Sin foto"}
+                    {model.photos.length > 0
+                      ? ` · ${model.photos.length} foto${model.photos.length > 1 ? "s" : ""}`
+                      : " · Sin fotos"}
                   </p>
                 </div>
               </button>
@@ -425,6 +442,33 @@ export function AdminPanel() {
                   await uploadPhoto(editingId!, file);
                 }}
               />
+
+              {!isNew && editingModel && editingModel.photos.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs uppercase tracking-wider text-stone-500">
+                    Galería ({editingModel.photos.length})
+                  </p>
+                  <div className="mt-2 grid grid-cols-4 gap-2">
+                    {editingModel.photos.map((photo) => (
+                      <div key={photo.id} className="group relative aspect-square overflow-hidden rounded-lg">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`${photo.imageUrl}?v=${imageVersion}`}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePhoto(photo.id)}
+                          className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs text-red-300 opacity-0 transition group-hover:opacity-100"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {isNew && (
                 <div className="mt-4">

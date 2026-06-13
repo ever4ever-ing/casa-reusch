@@ -2,8 +2,8 @@
 
 import { modelFilters } from "@/data/site";
 import type { CatalogModel } from "@/lib/db/types";
-import { site } from "@/data/site";
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 
 type CatalogGridProps = {
@@ -15,10 +15,8 @@ function CatalogTile({ model }: { model: CatalogModel }) {
   const showImage = model.imageUrl && !imageError;
 
   return (
-    <a
-      href={`https://wa.me/${site.whatsapp}?text=${encodeURIComponent(`Hola, me interesa contratar a ${model.name} para modelaje`)}`}
-      target="_blank"
-      rel="noopener noreferrer"
+    <Link
+      href={`/modelos/${model.id}`}
       className="group flex flex-col overflow-hidden rounded-lg border border-stone-700/80 bg-stone-950 transition hover:border-amber-400/50 hover:shadow-lg hover:shadow-amber-950/20"
     >
       <div
@@ -60,7 +58,7 @@ function CatalogTile({ model }: { model: CatalogModel }) {
           </div>
         )}
       </div>
-    </a>
+    </Link>
   );
 }
 
@@ -82,8 +80,7 @@ export function CatalogGrid({ models }: CatalogGridProps) {
             Conoce nuestras modelos VIP
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-stone-400">
-            Selecciona una modelo para consultar tarifas, servicios y disponibilidad
-            por WhatsApp.
+            Selecciona una modelo para ver su perfil, galería de fotos y servicios.
           </p>
         </div>
 

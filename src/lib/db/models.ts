@@ -1,4 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { getPhotosForModel } from "./photos";
 import type { CatalogModel, ModelCategory, ModelDetail, Service } from "./types";
 
 type ModelQueryRow = {
@@ -123,7 +124,13 @@ export async function getModelById(id: string): Promise<ModelDetail | null> {
   if (!model) return null;
 
   const sortOrder = results?.[0]?.sort_order ?? 0;
-  return { ...model, sortOrder };
+  let photos = await getPhotosForModel(db, id);
+
+  if (photos.length === 0 && model.imageUrl) {
+    photos = [{ id: `${id}-cover`, imageUrl: model.imageUrl, sortOrder: 0 }];
+  }
+
+  return { ...model, sortOrder, photos };
 }
 
 export async function getAllServices(): Promise<Service[]> {

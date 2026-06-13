@@ -7,15 +7,10 @@ export type Service = {
   description: string | null;
 };
 
-export type ModelRow = {
+export type ModelPhoto = {
   id: string;
-  name: string;
-  label: string;
-  category: ModelCategory;
-  image_key: string | null;
-  accent: string;
-  active: number;
-  sort_order: number;
+  imageUrl: string;
+  sortOrder: number;
 };
 
 export type CatalogModel = {
@@ -30,4 +25,5 @@ export type CatalogModel = {
 
 export type ModelDetail = CatalogModel & {
   sortOrder: number;
+  photos: ModelPhoto[];
 };
