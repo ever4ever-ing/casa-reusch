@@ -59,13 +59,12 @@ export function AdminPanel() {
   const [isNew, setIsNew] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
   const [listPreviewUrl, setListPreviewUrl] = useState<string | null>(null);
-  const [listPreviewFile, setListPreviewFile] = useState<File | null>(null);
   const [imageVersion, setImageVersion] = useState(0);
 
   useEffect(() => {
-    const file = listPreviewFile ?? pendingPhoto;
+    const file = pendingPhotos[0];
     if (!file) {
       setListPreviewUrl(null);
       return;
@@ -73,7 +72,7 @@ export function AdminPanel() {
     const url = URL.createObjectURL(file);
     setListPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [pendingPhoto, listPreviewFile]);
+  }, [pendingPhotos]);
 
   const loadData = useCallback(async () => {
     const res = await fetch("/api/admin/models");
@@ -122,15 +121,13 @@ export function AdminPanel() {
     setModels([]);
     setEditingId(null);
     setIsNew(false);
-    setPendingPhoto(null);
-    setListPreviewFile(null);
+    setPendingPhotos([]);
   }
 
   function startEdit(model: AdminModel) {
     setEditingId(model.id);
     setIsNew(false);
-    setPendingPhoto(null);
-    setListPreviewFile(null);
+    setPendingPhotos([]);
     setForm({
       id: model.id,
       name: model.name,
@@ -147,8 +144,7 @@ export function AdminPanel() {
   function startNew() {
     setEditingId(null);
     setIsNew(true);
-    setPendingPhoto(null);
-    setListPreviewFile(null);
+    setPendingPhotos([]);
     setForm({ ...emptyForm(), sortOrder: models.length + 1 });
     setMessage("");
   }
@@ -156,12 +152,15 @@ export function AdminPanel() {
   function cancelEdit() {
     setEditingId(null);
     setIsNew(false);
-    setPendingPhoto(null);
-    setListPreviewFile(null);
+    setPendingPhotos([]);
     setForm(emptyForm());
   }
 
-  async function uploadPhoto(modelId: string, file: File): Promise<boolean> {
+  async function uploadPhoto(
+    modelId: string,
+    file: File,
+    silent = false,
+  ): Promise<boolean> {
     const formData = new FormData();
     formData.append("modelId", modelId);
     formData.append("file", file);
@@ -175,10 +174,29 @@ export function AdminPanel() {
     }
 
     if (data.models) setModels(data.models);
-    setImageVersion((v) => v + 1);
-    setListPreviewFile(null);
-    setMessage("Foto actualizada correctamente");
+    if (!silent) {
+      setImageVersion((v) => v + 1);
+      setMessage("Foto subida correctamente");
+    }
     return true;
+  }
+
+  async function uploadPhotos(
+    modelId: string,
+    files: File[],
+    onProgress?: (current: number, total: number) => void,
+  ): Promise<void> {
+    for (let i = 0; i < files.length; i++) {
+      onProgress?.(i + 1, files.length);
+      const ok = await uploadPhoto(modelId, files[i], true);
+      if (!ok) throw new Error("upload failed");
+    }
+    setImageVersion((v) => v + 1);
+    setMessage(
+      files.length > 1
+        ? `${files.length} fotos subidas correctamente`
+        : "Foto subida correctamente",
+    );
   }
 
   async function handleDeletePhoto(photoId: string) {
@@ -232,11 +250,11 @@ export function AdminPanel() {
     setIsNew(false);
     setEditingId(savedId);
 
-    if (pendingPhoto) {
-      const uploaded = await uploadPhoto(savedId, pendingPhoto);
-      setPendingPhoto(null);
-    setListPreviewFile(null);
-      if (!uploaded) {
+    if (pendingPhotos.length > 0) {
+      try {
+        await uploadPhotos(savedId, pendingPhotos);
+        setPendingPhotos([]);
+      } catch {
         setLoading(false);
         return;
       }
@@ -435,11 +453,10 @@ export function AdminPanel() {
                 imageVersion={imageVersion}
                 disabled={loading}
                 isNew={isNew}
-                pendingFile={pendingPhoto}
-                onPendingFile={setPendingPhoto}
-                onPreviewChange={setListPreviewFile}
-                onUpload={async (file) => {
-                  await uploadPhoto(editingId!, file);
+                pendingFiles={pendingPhotos}
+                onPendingFilesChange={setPendingPhotos}
+                onUploadFiles={async (files, onProgress) => {
+                  await uploadPhotos(editingId!, files, onProgress);
                 }}
               />
 

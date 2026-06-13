@@ -9,10 +9,12 @@ type PhotoUploadProps = {
   imageUrl?: string;
   imageVersion?: number;
   disabled?: boolean;
-  onUpload: (file: File) => Promise<void>;
-  pendingFile: File | null;
-  onPendingFile: (file: File | null) => void;
-  onPreviewChange?: (file: File | null) => void;
+  onUploadFiles: (
+    files: File[],
+    onProgress?: (current: number, total: number) => void,
+  ) => Promise<void>;
+  pendingFiles: File[];
+  onPendingFilesChange: (files: File[]) => void;
   isNew: boolean;
 };
 
@@ -27,6 +29,10 @@ function withCacheBust(url: string, version: number): string {
   return `${base}?v=${version}`;
 }
 
+function filterImages(files: FileList | File[]): File[] {
+  return Array.from(files).filter((f) => f.type.startsWith("image/") && f.size > 0);
+}
+
 export function PhotoUpload({
   modelId,
   modelName,
@@ -34,114 +40,105 @@ export function PhotoUpload({
   imageUrl,
   imageVersion = 0,
   disabled,
-  onUpload,
-  pendingFile,
-  onPendingFile,
-  onPreviewChange,
+  onUploadFiles,
+  pendingFiles,
+  onPendingFilesChange,
   isNew,
 }: PhotoUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const blobUrlRef = useRef<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadDone, setUploadDone] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
 
-  const revokeBlob = useCallback(() => {
+  const revokePreview = useCallback(() => {
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = null;
     }
   }, []);
 
-  const setLocalPreview = useCallback(
+  const setCoverPreview = useCallback(
     (file: File | null) => {
-      revokeBlob();
+      revokePreview();
       if (!file) {
-        setBlobUrl(null);
-        setSelectedFile(null);
-        onPreviewChange?.(null);
+        setPreviewUrl(null);
         return;
       }
       const url = URL.createObjectURL(file);
       blobUrlRef.current = url;
-      setBlobUrl(url);
-      setSelectedFile(file);
-      setUploadDone(false);
-      onPreviewChange?.(file);
+      setPreviewUrl(url);
     },
-    [revokeBlob, onPreviewChange],
+    [revokePreview],
   );
 
   useEffect(() => {
-    if (pendingFile) setLocalPreview(pendingFile);
-  }, [pendingFile, setLocalPreview]);
-
-  useEffect(() => () => revokeBlob(), [revokeBlob]);
-
-  // Solo quitar el blob cuando ya tenemos URL del servidor
-  useEffect(() => {
-    if (uploadDone && imageUrl && blobUrl) {
-      revokeBlob();
-      setBlobUrl(null);
-      setSelectedFile(null);
+    if (pendingFiles.length > 0) {
+      setCoverPreview(pendingFiles[0]);
+    } else if (!uploading) {
+      revokePreview();
+      setPreviewUrl(null);
     }
-  }, [uploadDone, imageUrl, blobUrl, revokeBlob]);
+  }, [pendingFiles, uploading, setCoverPreview, revokePreview]);
+
+  useEffect(() => () => revokePreview(), [revokePreview]);
 
   const serverUrl = imageUrl ? withCacheBust(imageUrl, imageVersion) : null;
-  const displayUrl = blobUrl ?? serverUrl;
+  const displayUrl = previewUrl ?? serverUrl;
 
-  const pickFile = useCallback(
-    async (file: File | undefined) => {
-      if (!file || !file.type.startsWith("image/")) return;
-
-      setLocalPreview(file);
+  const processFiles = useCallback(
+    async (incoming: File[]) => {
+      const files = filterImages(incoming);
+      if (files.length === 0) return;
 
       if (isNew || !modelId) {
-        onPendingFile(file);
+        onPendingFilesChange([...pendingFiles, ...files]);
         return;
       }
 
       setUploading(true);
+      setUploadProgress({ current: 0, total: files.length });
       try {
-        await onUpload(file);
-        setUploadDone(true);
+        await onUploadFiles(files, (current, total) =>
+          setUploadProgress({ current, total }),
+        );
       } finally {
         setUploading(false);
+        setUploadProgress({ current: 0, total: 0 });
       }
     },
-    [isNew, modelId, onPendingFile, onUpload, setLocalPreview],
+    [isNew, modelId, onPendingFilesChange, onUploadFiles, pendingFiles],
   );
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
     if (disabled || uploading) return;
-    pickFile(e.dataTransfer.files[0]);
+    processFiles(filterImages(e.dataTransfer.files));
   }
 
-  function handleClear() {
-    onPendingFile(null);
-    setUploadDone(false);
-    setLocalPreview(null);
+  function removePending(index: number) {
+    onPendingFilesChange(pendingFiles.filter((_, i) => i !== index));
   }
 
   const statusLabel = uploading
-    ? "Subiendo foto..."
-    : uploadDone && serverUrl
-      ? "Foto guardada"
-      : blobUrl
-        ? isNew
-          ? "Vista previa · se sube al guardar"
-          : "Vista previa"
-        : serverUrl
-          ? "Foto actual"
-          : "Sin foto";
+    ? uploadProgress.total > 1
+      ? `Subiendo ${uploadProgress.current}/${uploadProgress.total}...`
+      : "Subiendo foto..."
+    : pendingFiles.length > 0
+      ? isNew
+        ? `${pendingFiles.length} foto(s) · se suben al guardar`
+        : `${pendingFiles.length} en cola`
+      : serverUrl
+        ? "Foto de portada"
+        : "Sin fotos";
 
   return (
     <div className="mt-4">
-      <p className="text-xs uppercase tracking-wider text-stone-500">Foto de la modelo</p>
+      <p className="text-xs uppercase tracking-wider text-stone-500">
+        Galería de fotos
+      </p>
 
       <div
         onDragOver={(e) => {
@@ -155,7 +152,7 @@ export function PhotoUpload({
             ? "border-amber-400 bg-amber-400/5"
             : uploading
               ? "border-amber-400/60 bg-amber-400/5"
-              : displayUrl
+              : displayUrl || pendingFiles.length > 0
                 ? "border-emerald-500/40 bg-emerald-500/5"
                 : "border-stone-700 bg-stone-950"
         }`}
@@ -171,87 +168,98 @@ export function PhotoUpload({
               className="absolute inset-0 h-full w-full object-cover"
             />
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-stone-500">
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-stone-500">
               <span className="font-serif text-5xl text-white/20">
                 {modelName.charAt(0) || "?"}
               </span>
-              <span className="text-xs">Sin foto</span>
+              <span className="text-xs">Arrastra varias fotos aquí</span>
             </div>
           )}
 
           {uploading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-[2px]">
               <div className="h-10 w-10 animate-spin rounded-full border-2 border-amber-400/30 border-t-amber-400" />
-              <span className="text-sm font-medium text-amber-100">Subiendo...</span>
-              {selectedFile && (
-                <span className="max-w-[90%] truncate text-xs text-stone-400">
-                  {selectedFile.name}
-                </span>
-              )}
-            </div>
-          )}
-
-          {selectedFile && blobUrl && !uploading && (
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
-              <p className="truncate text-xs font-medium text-white">{selectedFile.name}</p>
-              <p className="text-[10px] text-stone-400">{formatFileSize(selectedFile.size)}</p>
+              <span className="text-sm font-medium text-amber-100">{statusLabel}</span>
             </div>
           )}
         </div>
 
         <div className="border-t border-stone-800 p-3">
-          <p
-            className={`mb-2 text-center text-xs ${
-              uploading
-                ? "text-amber-300"
-                : uploadDone && serverUrl
-                  ? "text-emerald-400"
-                  : displayUrl
-                    ? "text-emerald-400/80"
-                    : "text-stone-500"
-            }`}
-          >
-            {statusLabel}
-          </p>
+          <p className="mb-2 text-center text-xs text-stone-500">{statusLabel}</p>
 
           <input
             ref={inputRef}
             type="file"
             accept="image/jpeg,image/png,image/webp,image/jpg"
+            multiple
             className="hidden"
             disabled={disabled || uploading}
             onChange={(e) => {
-              pickFile(e.target.files?.[0]);
+              processFiles(filterImages(e.target.files ?? []));
               e.target.value = "";
             }}
           />
 
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={disabled || uploading}
-              onClick={() => inputRef.current?.click()}
-              className="flex-1 rounded-lg bg-stone-800 py-2 text-xs font-medium text-amber-200 hover:bg-stone-700 disabled:opacity-50"
-            >
-              {displayUrl ? "Cambiar foto" : "Elegir foto"}
-            </button>
-            {(blobUrl || selectedFile) && (
-              <button
-                type="button"
-                disabled={disabled || uploading}
-                onClick={handleClear}
-                className="rounded-lg border border-stone-700 px-3 py-2 text-xs text-stone-400 hover:text-stone-200 disabled:opacity-50"
-              >
-                Quitar
-              </button>
-            )}
-          </div>
+          <button
+            type="button"
+            disabled={disabled || uploading}
+            onClick={() => inputRef.current?.click()}
+            className="w-full rounded-lg bg-stone-800 py-2 text-xs font-medium text-amber-200 hover:bg-stone-700 disabled:opacity-50"
+          >
+            {displayUrl ? "Agregar más fotos" : "Elegir fotos (una o varias)"}
+          </button>
 
           <p className="mt-2 text-center text-[10px] text-stone-600">
-            JPG, PNG o WebP · máx. 5 MB
+            JPG, PNG o WebP · máx. 5 MB c/u · selección múltiple
           </p>
         </div>
       </div>
+
+      {pendingFiles.length > 0 && (
+        <div className="mt-3">
+          <p className="mb-2 text-xs text-stone-500">
+            {isNew ? "Pendientes de subir" : "Seleccionadas"} ({pendingFiles.length})
+          </p>
+          <div className="grid grid-cols-4 gap-2">
+            {pendingFiles.map((file, index) => (
+              <PendingThumb
+                key={`${file.name}-${file.size}-${index}`}
+                file={file}
+                onRemove={() => removePending(index)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PendingThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const [url, setUrl] = useState<string>("");
+
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  return (
+    <div className="group relative aspect-square overflow-hidden rounded-lg border border-stone-700">
+      {url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={file.name} className="h-full w-full object-cover" />
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute inset-0 flex items-end justify-center bg-black/50 pb-1 text-[10px] text-red-300 opacity-0 transition group-hover:opacity-100"
+      >
+        Quitar
+      </button>
+      <span className="pointer-events-none absolute bottom-0 inset-x-0 truncate bg-black/60 px-1 text-[9px] text-stone-400">
+        {formatFileSize(file.size)}
+      </span>
     </div>
   );
 }
