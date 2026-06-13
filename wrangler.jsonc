@@ -21,7 +21,7 @@
     {
       "binding": "DB",
       "database_name": "reusch-models",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "49b35002-7a90-48b8-af33-77d741430df5",
       "migrations_dir": "migrations"
     }
   ],
